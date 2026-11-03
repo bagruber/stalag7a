@@ -1,0 +1,272 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lesungen prüfen</title>
+<style>
+:root { --grund:#f4f2ec; --flaeche:#fffefb; --tinte:#1d1c19; --matt:#6a675e; --linie:#d8d4c8; --akzent:#8a2f1d; --wahl:#e9dfc9; --abw:#f3c9b4; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --grund:#1a1917; --flaeche:#242320; --tinte:#ece9e0; --matt:#a09c90; --linie:#3b3934; --akzent:#e08a6f; --wahl:#3d3626; --abw:#6e3a26; } }
+:root[data-theme="dark"] { --grund:#1a1917; --flaeche:#242320; --tinte:#ece9e0; --matt:#a09c90; --linie:#3b3934; --akzent:#e08a6f; --wahl:#3d3626; --abw:#6e3a26; }
+* { box-sizing:border-box; }
+html, body { height:100%; margin:0; }
+body { background:var(--grund); color:var(--tinte); font:15px/1.4 system-ui, sans-serif; display:grid; grid-template-rows:auto auto 1fr; }
+header { display:flex; gap:12px; align-items:center; flex-wrap:wrap; padding:8px 16px; background:var(--flaeche); }
+header .wo { font-weight:600; }
+header .stand { color:var(--matt); margin-right:auto; }
+#legende { padding:6px 16px; font-size:13px; color:var(--matt); border-top:1px solid var(--linie); border-bottom:1px solid var(--linie); background:var(--flaeche); }
+#legende span { color:var(--tinte); }
+button { font:inherit; color:inherit; background:var(--flaeche); border:1px solid var(--linie); border-radius:4px; padding:4px 10px; cursor:pointer; }
+button:hover { border-color:var(--tinte); }
+main { display:grid; grid-template-columns:minmax(0,3fr) minmax(380px,2fr); min-height:0; }
+#scan { overflow:auto; background:#00000014; cursor:zoom-in; }
+#rahmen { position:relative; width:fit-content; max-width:100%; margin:0 auto; }
+#rahmen img { display:block; max-width:100%; }
+#scan.gross { cursor:zoom-out; }
+#scan.gross #rahmen { width:240%; max-width:none; }
+#scan.gross #rahmen img { width:100%; max-width:none; }
+#stelle { position:absolute; border:2px solid var(--akzent); box-shadow:0 0 0 2000px #0000001f; pointer-events:none; display:none; }
+#liste { overflow:auto; padding:8px 16px 48px; }
+.fall { padding:10px 0; border-bottom:1px solid var(--linie); }
+.fall.jetzt { outline:2px solid var(--akzent); outline-offset:4px; border-radius:2px; }
+.fall.erledigt { opacity:.72; }
+.ort { color:var(--matt); font-size:13px; margin-bottom:6px; overflow-wrap:anywhere; }
+.offen { color:var(--akzent); font-weight:600; }
+.lesungen { display:grid; grid-template-columns:1fr 1fr; gap:6px; }
+.lesung { text-align:left; font-family:ui-monospace, Menlo, Consolas, monospace; font-size:14px; white-space:pre-wrap; overflow-wrap:anywhere; min-height:34px; }
+.nr { color:var(--matt); font-size:12px; margin-right:6px; font-family:system-ui, sans-serif; }
+.nichts { color:var(--matt); font-family:system-ui, sans-serif; font-style:italic; }
+.unsicher { text-decoration:underline dotted; text-underline-offset:3px; }
+.unleserlich { color:var(--akzent); font-weight:600; }
+.gestrichen { text-decoration:line-through; }
+.eingefuegt { font-style:italic; }
+.anders { background:var(--abw); }
+.gewaehlt { background:var(--wahl); border-color:var(--tinte); }
+.nebenzeile { display:flex; gap:6px; margin-top:6px; flex-wrap:wrap; }
+.neben { font-size:13px; padding:2px 8px; }
+.nebenzeile input { flex:1; min-width:140px; font:14px ui-monospace, Menlo, Consolas, monospace; padding:2px 6px; background:var(--flaeche); color:inherit; border:1px solid var(--linie); border-radius:4px; }
+.ausschnitt { position:relative; background-repeat:no-repeat; border:1px solid var(--linie); margin-bottom:6px; max-width:100%; }
+.ziel { position:absolute; border:2px solid var(--akzent); border-radius:2px; pointer-events:none; }
+.keinelage { color:var(--matt); font-size:13px; font-style:italic; margin-bottom:6px; }
+@media (max-width:800px) { main { grid-template-columns:1fr; grid-template-rows:45vh 1fr; } }
+</style>
+</head>
+<body>
+<header>
+  <span class="wo" id="wo"></span>
+  <span class="stand" id="stand"></span>
+  <button id="naechster"></button>
+  <button id="zurueck">← Seite</button>
+  <button id="weiter">Seite →</button>
+  <button id="sichern">Entscheidungen sichern</button>
+</header>
+<div id="legende">
+  Wähle, was im Original steht, nicht was gemeint sein könnte. So liest du die Vorschläge:
+  <span class="unsicher">Muster</span> vom Modell als unsicher markiert ·
+  <span class="unleserlich">…</span> oder <span class="unleserlich">?</span> nicht lesbar ·
+  <span class="gestrichen">Muster</span> im Original gestrichen ·
+  <span class="anders">Mu</span> unterscheidet die beiden Lesungen ·
+  <span class="nichts">nichts gelesen</span> dieser Durchgang hat hier nichts erkannt.
+</div>
+<main>
+  <div id="scan"><div id="rahmen"><img id="bild" alt="Scan der aktuellen Seite"><div id="stelle"></div></div></div>
+  <div id="liste"></div>
+</main>
+<script>
+const DATEN = /*DATEN*/null;
+const SPEICHER = "stalag7a-pilot-entscheidungen";
+let entscheidungen = {};
+try { entscheidungen = JSON.parse(localStorage.getItem(SPEICHER)) || {}; } catch (e) {}
+let seite = 0, aktiv = 0;
+const alle = DATEN.seiten.flatMap(s => s.faelle);
+
+function merken() { try { localStorage.setItem(SPEICHER, JSON.stringify(entscheidungen)); } catch (e) {} }
+
+// Übersetzt die Markierungen aus TRANSKRIPTION.md in Zeichen mit Darstellungsklasse.
+function zeichen(roh) {
+  const raus = [], muster = /\[\?\]|\[\.\.\.\]|\[-\?-\]|\[geschwärzt\]|\[\?([^\]]+)\]|\[-(.*?)-\]|\[\+(.*?)\+\]/g;
+  const dazu = (text, klasse) => { for (const c of text) raus.push({c, klasse}); };
+  let stand = 0, m;
+  while ((m = muster.exec(roh))) {
+    dazu(roh.slice(stand, m.index), "");
+    if (m[0] === "[?]") dazu("?", "unleserlich");
+    else if (m[0] === "[...]") dazu("…", "unleserlich");
+    else if (m[0] === "[-?-]") dazu("?", "gestrichen");
+    else if (m[0] === "[geschwärzt]") dazu("■■■", "");
+    else if (m[1] !== undefined) dazu(m[1], "unsicher");
+    else if (m[2] !== undefined) dazu(m[2], "gestrichen");
+    else dazu(m[3], "eingefuegt");
+    stand = muster.lastIndex;
+  }
+  dazu(roh.slice(stand), "");
+  return raus;
+}
+
+// Zeichnet eine Lesung und hebt die Zeichen hervor, die die andere nicht hat (längste gemeinsame Teilfolge).
+function darstellen(roh, andere) {
+  const a = zeichen(roh), b = zeichen(andere || "");
+  const t = Array.from({length:a.length+1}, () => new Uint16Array(b.length+1));
+  for (let i=a.length-1;i>=0;i--) for (let j=b.length-1;j>=0;j--)
+    t[i][j] = a[i].c===b[j].c ? t[i+1][j+1]+1 : Math.max(t[i+1][j], t[i][j+1]);
+  const raus = document.createDocumentFragment();
+  let i=0, j=0, puffer="", art=null;
+  const leeren = () => { if (!puffer) return; const k = document.createElement("span"); k.className = art; k.textContent = puffer; raus.append(k); puffer=""; };
+  while (i<a.length) {
+    const gleich = j<b.length && a[i].c===b[j].c;
+    if (!gleich && j<b.length && t[i][j+1] >= t[i+1][j]) { j++; continue; }
+    const neu = a[i].klasse + (gleich || andere === null ? "" : " anders");
+    if (neu !== art) { leeren(); art = neu; }
+    puffer += a[i].c; i++; if (gleich) j++;
+  }
+  leeren();
+  return raus;
+}
+
+function knopf(klasse, inhalt, aktion) {
+  const b = document.createElement("button"); b.className = klasse;
+  b.append(...[].concat(inhalt)); b.onclick = e => { e.stopPropagation(); aktion(); }; return b;
+}
+function nummer(t) { const n = document.createElement("span"); n.className = "nr"; n.textContent = t; return n; }
+function kein(text) { const n = document.createElement("span"); n.className = "nichts"; n.textContent = text; return n; }
+
+function ausschnitt(s, lage) {
+  if (!lage) { const d = document.createElement("div"); d.className = "keinelage"; d.textContent = "Kein Ausschnitt verfügbar, bitte im Scan suchen."; return d; }
+  // Großzügiger Rand, weil die Koordinaten vom Modell geschätzt sind und oft knapp danebenliegen.
+  const randX = 0.03, randY = 0.022, links = Math.max(lage.x-randX, 0), oben = Math.max(lage.y-randY, 0);
+  const breite = Math.min(lage.x+lage.b+randX, 1)-links, hoehe = Math.min(lage.y+lage.h+randY, 1)-oben;
+  const zielBreite = Math.min(480, breite*s.w*3), mass = zielBreite/(breite*s.w);
+  const d = document.createElement("div"); d.className = "ausschnitt";
+  d.style.width = zielBreite+"px"; d.style.height = hoehe*s.h*mass+"px";
+  d.style.backgroundImage = `url("${DATEN.bilder}/${s.datei}")`;
+  d.style.backgroundSize = `${s.w*mass}px ${s.h*mass}px`;
+  d.style.backgroundPosition = `${-links*s.w*mass}px ${-oben*s.h*mass}px`;
+  const ziel = document.createElement("div"); ziel.className = "ziel";
+  ziel.style.left = (lage.x-links)*s.w*mass+"px"; ziel.style.top = (lage.y-oben)*s.h*mass+"px";
+  ziel.style.width = lage.b*s.w*mass+"px"; ziel.style.height = lage.h*s.h*mass+"px";
+  d.append(ziel);
+  return d;
+}
+
+function zaehlen() {
+  const fertig = alle.filter(x => entscheidungen[x.id]).length, k = document.getElementById("naechster");
+  document.getElementById("stand").textContent = `${fertig} von ${alle.length} Fällen entschieden`;
+  k.textContent = fertig < alle.length ? `Nächster offener Fall (${alle.length-fertig})` : "Alles entschieden";
+  k.disabled = fertig === alle.length;
+}
+
+function zeichnen() {
+  const s = DATEN.seiten[seite];
+  document.getElementById("bild").src = DATEN.bilder + "/" + s.datei;
+  document.getElementById("wo").textContent = `Seite ${seite+1} von ${DATEN.seiten.length}`;
+  zaehlen();
+  const liste = document.getElementById("liste");
+  liste.replaceChildren();
+  s.faelle.forEach((x, n) => {
+    const e = entscheidungen[x.id] || {};
+    const zeile = document.createElement("div"); zeile.className = "fall" + (entscheidungen[x.id] ? " erledigt" : ""); zeile.id = "fall-"+n;
+    const ort = document.createElement("div"); ort.className = "ort"; ort.textContent = x.wo;
+    if (!entscheidungen[x.id]) { const o = document.createElement("span"); o.className = "offen"; o.textContent = "offen · "; ort.prepend(o); }
+    zeile.append(ausschnitt(s, x.lage), ort);
+    const neben = document.createElement("div"); neben.className = "nebenzeile";
+    const wahl = (w, t) => knopf("neben"+(e.wahl===w ? " gewaehlt" : ""), t, () => waehlen(n, w));
+    if (x.art === "stelle") {
+      neben.append(knopf("lesung"+(e.wahl==="stimmt" ? " gewaehlt" : ""), [nummer("1 stimmt:"), darstellen(x.lesung, null)], () => waehlen(n, "stimmt")),
+        wahl("ausschnitt_falsch", "2 Ausschnitt falsch"), wahl("unlesbar", "3 nicht lesbar"));
+    } else {
+      const links = x.tausch ? "b" : "a", rechts = x.tausch ? "a" : "b";
+      const lesungen = document.createElement("div"); lesungen.className = "lesungen";
+      [[links, rechts, "1"], [rechts, links, "2"]].forEach(([eins, zwei, taste]) => {
+        const inhalt = x[eins] === null ? kein("nichts gelesen") : darstellen(x[eins], x[zwei] === null ? null : x[zwei]);
+        lesungen.append(knopf("lesung"+(e.wahl===eins ? " gewaehlt" : ""), [nummer(taste), inhalt], () => waehlen(n, eins)));
+      });
+      zeile.append(lesungen);
+      neben.append(wahl("unlesbar", "3 nicht lesbar"), wahl("verschieden", "5 verschiedene Stellen"));
+    }
+    const eingabe = document.createElement("input"); eingabe.placeholder = "4 andere Lesung, dann Enter";
+    const eigene = x.art === "stelle" ? "andere" : "weder";
+    eingabe.value = e.wahl===eigene ? e.text : "";
+    // Beim Verlassen des Felds nur speichern: Neu zeichnen oder blättern nähme dem Klick, der das Feld verlässt, sein Ziel und den Fokus.
+    const speichern = () => {
+      entscheidungen[x.id] = {wahl:eigene, text:eingabe.value}; merken(); zaehlen();
+      zeile.classList.add("erledigt");
+      zeile.querySelector(".offen")?.remove();
+      zeile.querySelectorAll(".gewaehlt").forEach(k => k.classList.remove("gewaehlt"));
+    };
+    eingabe.onchange = speichern;
+    eingabe.onkeydown = ev => { if (ev.key === "Enter" && eingabe.value) { speichern(); weiter(n); } };
+    neben.append(eingabe); zeile.append(neben);
+    zeile.onclick = () => { aktiv = n; markieren(); };
+    liste.append(zeile);
+  });
+  markieren();
+}
+
+function markieren() {
+  document.querySelectorAll(".fall").forEach((z, n) => z.classList.toggle("jetzt", n===aktiv));
+  const z = document.getElementById("fall-"+aktiv); if (z) z.scrollIntoView({block:"nearest"});
+  const lage = (DATEN.seiten[seite].faelle[aktiv] || {}).lage, stelle = document.getElementById("stelle");
+  stelle.style.display = lage ? "block" : "none";
+  if (lage) {
+    stelle.style.left = lage.x*100+"%"; stelle.style.top = lage.y*100+"%";
+    stelle.style.width = lage.b*100+"%"; stelle.style.height = lage.h*100+"%";
+    stelle.scrollIntoView({block:"nearest", inline:"nearest"});
+  }
+}
+
+function waehlen(n, wahl) { entscheidungen[DATEN.seiten[seite].faelle[n].id] = {wahl}; merken(); weiter(n); }
+// Nächste Seite mit offenem Fall, von „ab“ an im Kreis; -1, wenn alles entschieden ist.
+function offeneSeite(ab) {
+  const anzahl = DATEN.seiten.length;
+  for (let d = 0; d < anzahl; d++) if (DATEN.seiten[(ab+d)%anzahl].faelle.some(x => !entscheidungen[x.id])) return (ab+d)%anzahl;
+  return -1;
+}
+function weiter(n) {
+  const f = DATEN.seiten[seite].faelle, naechste = offeneSeite(seite+1);
+  if (f.every(x => entscheidungen[x.id]) && naechste >= 0) return blaettern(naechste-seite);
+  const offen = f.findIndex((x, i) => i > n && !entscheidungen[x.id]);
+  aktiv = offen >= 0 ? offen : Math.max(f.findIndex(x => !entscheidungen[x.id]), 0);
+  zeichnen();
+}
+function blaettern(d) {
+  seite = Math.max(0, Math.min(DATEN.seiten.length-1, seite+d));
+  aktiv = Math.max(DATEN.seiten[seite].faelle.findIndex(x => !entscheidungen[x.id]), 0);
+  const scan = document.getElementById("scan"); scan.classList.remove("gross"); scan.scrollTo(0,0);
+  zeichnen();
+}
+
+document.getElementById("naechster").onclick = () => {
+  const hier = DATEN.seiten[seite].faelle.findIndex((x, i) => i > aktiv && !entscheidungen[x.id]);
+  if (hier >= 0) { aktiv = hier; markieren(); } else blaettern(offeneSeite(seite+1)-seite);
+};
+document.getElementById("zurueck").onclick = () => blaettern(-1);
+document.getElementById("weiter").onclick = () => blaettern(1);
+document.getElementById("sichern").onclick = () => {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([JSON.stringify(entscheidungen, null, 1)], {type:"application/json"}));
+  a.download = "entscheidungen.json"; a.click();
+};
+document.getElementById("scan").onclick = e => {
+  const scan = e.currentTarget, rand = scan.getBoundingClientRect();
+  const fx = (e.clientX-rand.left+scan.scrollLeft)/scan.scrollWidth, fy = (e.clientY-rand.top+scan.scrollTop)/scan.scrollHeight;
+  scan.classList.toggle("gross");
+  scan.scrollTo(fx*scan.scrollWidth-rand.width/2, fy*scan.scrollHeight-rand.height/2);
+};
+document.addEventListener("keydown", e => {
+  if (e.target.tagName === "INPUT") { if (e.key === "Escape") e.target.blur(); return; }
+  const liste = DATEN.seiten[seite].faelle, x = liste[aktiv];
+  if (e.key === "ArrowRight" || e.key === "n") blaettern(1);
+  else if (e.key === "ArrowLeft" || e.key === "p") blaettern(-1);
+  else if (e.key === "ArrowDown" || e.key === "j") { aktiv = Math.min(aktiv+1, liste.length-1); markieren(); e.preventDefault(); }
+  else if (e.key === "ArrowUp" || e.key === "k") { aktiv = Math.max(aktiv-1, 0); markieren(); e.preventDefault(); }
+  else if (x && e.key === "4") { document.querySelector(`#fall-${aktiv} input`).focus(); e.preventDefault(); }
+  else if (x && x.art === "stelle") {
+    if (e.key === "1") waehlen(aktiv, "stimmt"); else if (e.key === "2") waehlen(aktiv, "ausschnitt_falsch"); else if (e.key === "3") waehlen(aktiv, "unlesbar");
+  }
+  else if (x) {
+    if (e.key === "1") waehlen(aktiv, x.tausch ? "b" : "a"); else if (e.key === "2") waehlen(aktiv, x.tausch ? "a" : "b"); else if (e.key === "3") waehlen(aktiv, "unlesbar"); else if (e.key === "5") waehlen(aktiv, "verschieden");
+  }
+});
+blaettern(Math.max(offeneSeite(0), 0));
+</script>
+</body>
+</html>
